@@ -149,7 +149,11 @@ const remove = async (req, res) => {
     if (!deleted) {
       return res.status(404).json({ status: "FAILED", message: "User not found" });
     }
-    res.clearCookie("jwt");
+    res.clearCookie("jwt", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    });
     res.status(200).json({ status: "SUCCESS", message: "User deleted successfully" });
   } catch (error) {
     console.log("Error deleting user:", error);
@@ -158,7 +162,11 @@ const remove = async (req, res) => {
 };
 const logout = async (req, res) => {
   try {
-    res.clearCookie("jwt");
+    res.clearCookie("jwt", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    });
     res.status(200).json({ status: "SUCCESS", authorize: false, message: "Logout Successful" });
   } catch (error) {
     console.log(`Error occured while log out ${error}`);
