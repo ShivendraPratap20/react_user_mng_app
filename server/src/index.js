@@ -11,7 +11,7 @@ const router = require("./routes/index.js");
 
 
 app.use(cors({
-    origin: 'https://reactusermngapp.vercel.app',
+    origin: ['http://localhost:5173', 'https://reactusermngapp.vercel.app'],
     credentials: true
 }));
 app.use(express.json());
