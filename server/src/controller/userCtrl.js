@@ -1,7 +1,8 @@
 const userModel = require("../db/model/userModel");
 const bcrypt = require("bcryptjs");
 const cloudinary = require("../config/cloudinary");
-
+const sessionModel = require("../db/model/sessionModel");
+const { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } = require("../util/authUtils");
 
 const verify = async (req, res) => {
   if (req.authorize) {
@@ -23,13 +24,29 @@ const login = async (req, res) => {
       res.status(401).json({ status: "FAILED", message: "Password incorrect" });
       return;
     }
-    const token = await result.generateToken();
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    //const token = await result.generateToken();
+
+    const tokenData = new sessionModel({
+      userID
     });
+
+    const {accessToken, refreshToken } = await tokenData.generateToken();
+    console.log(`Access token ${accessToken} \n Refresh token ${refreshToken}`)
+    await tokenData.save();
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      expires: ACCESS_TOKEN_EXPIRY,
+    });
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      expires: REFRESH_TOKEN_EXPIRY,
+    });
+
     res.json({ status: "SUCCESS", data: result });
   } catch (err) {
     console.log(`Error occured while signing ${err}`);
