@@ -5,7 +5,9 @@ const REFRESH_TOKEN_EXPIRY = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 async function generateAccessToken({ userID }){
     try {
-        const token = await jwt.sign({ userID }, process.env.SECRET_KEY)
+        const token = jwt.sign({ userID }, process.env.ACCESS_TOKEN_SECRET_KEY, {
+            expiresIn: 30*60
+        })
         if(!token) throw new Error('No access token!')
         return token;
     } catch (error) {
@@ -15,17 +17,22 @@ async function generateAccessToken({ userID }){
 
 async function generateRefreshToken({ _id }){
     try {
-        const token = await jwt.sign({ _id }, process.env.SECRET_KEY);
+        const token = jwt.sign({ _id }, process.env.REFRESH_TOKEN_SECRET_KEY, {
+            expiresIn: 30*60
+        });
         if(!token) throw new Error('No refresh token generated!');
         return token;
     } catch (error) {
-        console.log(`Error occured while generating refresh token ${token}`)
+        console.log(`Error occured while generating refresh token ${error}`)
     }
 }
 
-function verifyToken(token){
+function verifyToken(token, tokenType){
     try {
-        const tokenData = jwt.verify(token, process.env.SECRET_KEY);
+        const tokenSecretKey = tokenType == "access"? process.env.ACCESS_TOKEN_SECRET_KEY 
+        :(tokenType == "refresh")? process.env.REFRESH_TOKEN_SECRET_KEY : null;
+         
+        const tokenData = jwt.verify(token, tokenSecretKey);
         if(!tokenData)
             throw new Error('No data for token')
         return { isValid: true, data: tokenData }
@@ -34,8 +41,6 @@ function verifyToken(token){
         return { isValid: false };
     }
 }
-
-async function reGenerateAccessToken({ refreshToken }){}
 
 module.exports = {
     ACCESS_TOKEN_EXPIRY,

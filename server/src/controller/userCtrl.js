@@ -4,6 +4,9 @@ const cloudinary = require("../config/cloudinary");
 const sessionModel = require("../db/model/sessionModel");
 const { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } = require("../util/authUtils");
 
+const SECURE = process.env.NODE_ENVIRONMENT == 'PROD'? true: false;
+const SAME_SITE = process.env.NODE_ENVIRONMENT == 'PROD'? "none": "lax"
+
 const verify = async (req, res) => {
   if (req.authorize) {
     res.json({ status: "SUCCESS", authorize: true, data: req.userData })
@@ -31,20 +34,20 @@ const login = async (req, res) => {
     });
 
     const {accessToken, refreshToken } = await tokenData.generateToken();
-    console.log(`Access token ${accessToken} \n Refresh token ${refreshToken}`)
-    await tokenData.save();
+    if(accessToken && refreshToken)
+      await tokenData.save();
 
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      expires: ACCESS_TOKEN_EXPIRY,
+      secure: SECURE,
+      sameSite: SAME_SITE,
+      maxAge: ACCESS_TOKEN_EXPIRY,
     });
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      expires: REFRESH_TOKEN_EXPIRY,
+      secure: SECURE,
+      sameSite: SAME_SITE,
+      maxAge: REFRESH_TOKEN_EXPIRY,
     });
 
     res.json({ status: "SUCCESS", data: result });
@@ -69,13 +72,29 @@ const signup = async (req, res) => {
       confirmPassword,
       phoneNumber
     });
-    const token = await result.generateToken();
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    //const token = await result.generateToken();    Old token generation method
+
+    const tokenData = new sessionModel({
+      userID
     });
+
+    const {accessToken, refreshToken } = await tokenData.generateToken();
+    if(accessToken && refreshToken)
+      await tokenData.save();
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: SECURE,
+      sameSite: SAME_SITE,
+      maxAge: ACCESS_TOKEN_EXPIRY,
+    });
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: SECURE,
+      sameSite: SAME_SITE,
+      maxAge: REFRESH_TOKEN_EXPIRY,
+    });
+    
     const data = await result.save();
     res.json({ status: "SUCCESS", message: "Credentials saved. Now Login your account", data: result });
   } catch (error) {
@@ -166,10 +185,15 @@ const remove = async (req, res) => {
     if (!deleted) {
       return res.status(404).json({ status: "FAILED", message: "User not found" });
     }
-    res.clearCookie("jwt", {
+    res.clearCookie("accessToken", {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      secure: SECURE,
+      sameSite: SAME_SITE,
+    });
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: SECURE,
+      sameSite: SAME_SITE,
     });
     res.status(200).json({ status: "SUCCESS", message: "User deleted successfully" });
   } catch (error) {
@@ -179,10 +203,15 @@ const remove = async (req, res) => {
 };
 const logout = async (req, res) => {
   try {
-    res.clearCookie("jwt", {
+    res.clearCookie("accessToken", {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      secure: SECURE,
+      sameSite: SAME_SITE,
+    });
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: SECURE,
+      sameSite: SAME_SITE,
     });
     res.status(200).json({ status: "SUCCESS", authorize: false, message: "Logout Successful" });
   } catch (error) {

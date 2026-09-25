@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 const { generateAccessToken, generateRefreshToken } = require("../../util/authUtils");
 
 
@@ -42,8 +41,8 @@ sessionSchema.methods.generateToken = async function(){
     try {
         const accessToken = await generateAccessToken(this);
         const refreshToken = await generateRefreshToken({_id: this._id});
-        this.accessToken = accessToken;
-        this.refreshToken = refreshToken;
+        this.accessToken = await bcrypt.hash(accessToken, 10);
+        this.refreshToken = await bcrypt.hash(refreshToken, 10);
         await this.save()
         return { accessToken, refreshToken }
     } catch (error) {
