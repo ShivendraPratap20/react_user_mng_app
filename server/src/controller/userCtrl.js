@@ -1,11 +1,13 @@
-const userModel = require("../db/model/userModel");
 const bcrypt = require("bcryptjs");
 const cloudinary = require("../config/cloudinary");
+const { OAuth2Client } = require("google-auth-library");
+const userModel = require("../db/model/userModel");
 const sessionModel = require("../db/model/sessionModel");
 const { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } = require("../util/authUtils");
+const { BASE_URL, GOOGLE_AUTH_URL, GOOGLE_REDIRECT_URL, GOOGLE_TOKEN_URL } = require('../const')
 
-const SECURE = process.env.NODE_ENVIRONMENT == 'PROD'? true: false;
-const SAME_SITE = process.env.NODE_ENVIRONMENT == 'PROD'? "none": "lax"
+const SECURE = process.env.NODE_ENVIRONMENT == 'PROD' ? true : false;
+const SAME_SITE = process.env.NODE_ENVIRONMENT == 'PROD' ? "none" : "lax"
 
 const verify = async (req, res) => {
   if (req.authorize) {
@@ -33,8 +35,8 @@ const login = async (req, res) => {
       userID
     });
 
-    const {accessToken, refreshToken } = await tokenData.generateToken();
-    if(accessToken && refreshToken)
+    const { accessToken, refreshToken } = await tokenData.generateToken();
+    if (accessToken && refreshToken)
       await tokenData.save();
 
     res.cookie("accessToken", accessToken, {
@@ -78,8 +80,8 @@ const signup = async (req, res) => {
       userID
     });
 
-    const {accessToken, refreshToken } = await tokenData.generateToken();
-    if(accessToken && refreshToken)
+    const { accessToken, refreshToken } = await tokenData.generateToken();
+    if (accessToken && refreshToken)
       await tokenData.save();
 
     res.cookie("accessToken", accessToken, {
@@ -94,7 +96,7 @@ const signup = async (req, res) => {
       sameSite: SAME_SITE,
       maxAge: REFRESH_TOKEN_EXPIRY,
     });
-    
+
     const data = await result.save();
     res.json({ status: "SUCCESS", message: "Credentials saved. Now Login your account", data: result });
   } catch (error) {
@@ -220,11 +222,109 @@ const logout = async (req, res) => {
   }
 }
 
+const googleLoginHandler = async (req, res) => {
+  try {
+    console.log('Google request made');
+    const params = new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      redirect_uri: GOOGLE_REDIRECT_URL,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state: process.env.GOOGLE_STATE,
+    });
+
+    res.redirect(`${GOOGLE_AUTH_URL}?${params}`);
+  } catch (error) {
+    console.log(`Error while login in with google ${error}`)
+  }
+};
+
+const googleCallbackHandler = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+
+    if (state != process.env.GOOGLE_STATE)
+      return res.status(403).send({
+        status: "FAILED",
+        message: "Google state mismatch"
+      })
+
+    const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: GOOGLE_REDIRECT_URL,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      return res.status(400).send('Token exchange failed')
+    }
+
+    const tokens = await tokenResponse.json();
+    // tokens = { access_token, id_token, expires_in, scope, token_type, refresh_token? }
+
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const { sub, email, name, picture, email_verified } = payload;
+
+    if (!email_verified) {
+      return res.status(400).send({status: "FAILED", message: "Email not verified by google"});
+    }
+
+    let user = await userModel.findOne({ userID: email });
+    if (!user) {
+      const result = new userModel({
+        userName: name,
+        userID: email,
+      });
+      user = await result.save();
+    }
+
+    const tokenData = new sessionModel({
+      userID: email
+    });
+
+    const { accessToken, refreshToken } = await tokenData.generateToken();
+    if (accessToken && refreshToken)
+      await tokenData.save();
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: SECURE,
+      sameSite: SAME_SITE,
+      maxAge: ACCESS_TOKEN_EXPIRY,
+    });
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: SECURE,
+      sameSite: SAME_SITE,
+      maxAge: REFRESH_TOKEN_EXPIRY,
+    });
+    //res.json({ status: "SUCCESS", message: "Credentials saved. Now Login your account", data: user });
+    res.redirect("http://localhost:5173/");
+  } catch (error) {
+    console.log(`Error occured while handling google callback ${error}`)
+    res.status(500).send(JSON.stringify({ status: false, message: `${error}` }));
+
+  }
+};
+
 module.exports = {
   verify,
   login,
   signup,
   modify,
   remove,
-  logout
+  logout,
+  googleLoginHandler,
+  googleCallbackHandler
 };
