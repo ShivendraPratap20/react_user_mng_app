@@ -18,12 +18,12 @@ const signUp2 = async (req, res,) => {
         const generatedOTP = crypto.randomInt(100000, 999999);
         const existsUserForOtp = await otpModel.findOne({ userID });
         if (existsUserForOtp) {
-            const updateUserForOtp = await otpModel.findOneAndUpdate(
-                { userID },
-                {
-                    otp: generatedOTP
+            return res.status(409).json({
+                status: "FAILED", message: "Pending for OTP verification", error: {
+                    code: "OTP_VERIFICATION_PENDING",
+                    details: null
                 }
-            );
+            });
         } else {
             const userForOtp = new otpModel({
                 userID,
@@ -78,7 +78,7 @@ const verifuOTP = async (req, res) => {
                 }
             });
         const { otp: savedOtp, otpCreatedAt, otpExpiresAt, userID: savedUserID, userName, phoneNumber, password } = userForOtp;
-        if (!((Date.now() - new Date(otpExpiresAt)) > 5 * 60 * 1000))
+        if (!((Date.now() - new Date(otpExpiresAt)) < 0))
             return res.status(410).json({
                 status: "FAILED",
                 message: "OTP expired",
@@ -88,7 +88,7 @@ const verifuOTP = async (req, res) => {
                 }
             });
 
-        if (!(savedOtp !== otp))
+        if (savedOtp !== otp)
             return res.status(400).json({
                 status: "FAILED",
                 message: "OTP verification failed",
@@ -111,11 +111,7 @@ const verifuOTP = async (req, res) => {
 
         return res.status(200).json({
             status: "SUCCESS",
-            message: "OTP verified",
-            error: {
-                code: 'OTP_VERIFIED',
-                details: 'Email is verified and user account created'
-            }
+            message: "OTP verified"
         });
 
     } catch (error) {
@@ -155,7 +151,7 @@ const resendOTP = async (req, res) => {
                 }
             });
         const { otp: savedOtp, otpCreatedAt, otpExpiresAt, userID: savedUserID, userName, phoneNumber, password, regenerateOTPAfter } = userForOtp;
-        if (!(new Date(regenerateOTPAfter) - new Date(otpCreatedAt) > 1 * 1000))
+        if (!((Date.now() - new Date(regenerateOTPAfter)) > 0))
             return res.status(422).json({
                 status: "FAILED",
                 message: "OTP resend requested too soon",
@@ -169,7 +165,10 @@ const resendOTP = async (req, res) => {
         const updateUserForOtp = await otpModel.findOneAndUpdate(
             { userID },
             {
-                otp: generatedOTP
+                otp: generatedOTP,
+                otpCreatedAt: Date.now(),
+                otpExpiresAt: new Date(Date.now() + 5 * 60 * 1000),
+                regenerateOTPAfter: new Date(Date.now() + 1 * 60 * 1000)
             }
         );
         const isOTPSend = sendOTP({ userID, otp: generatedOTP });

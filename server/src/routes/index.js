@@ -3,7 +3,7 @@ const router = Express.Router();
 const validation = require("../middleware/validation");
 const upload = require("../middleware/multer");
 const { loginValidation, registerValidation } = require("../util/validator");
-const { verify, login, signup, modify, remove, logout, googleLoginHandler, googleCallbackHandler } = require("../controller/userCtrl");
+const { verify, login, signup, modify, remove, logout, googleLoginHandler, googleCallbackHandler, passwordReset, verifyPasswordResetOtp, passwordResetUpdate } = require("../controller/userCtrl");
 const { signUp2, verifuOTP, resendOTP } = require("../controller/otpCtrl");
 
 router.get("/auth", verify);
@@ -16,6 +16,9 @@ router.get("/googleSignIn", googleLoginHandler);
 router.get("/auth/google/callback", googleCallbackHandler);
 router.post("/otp/test", loginValidation, validation, signUp2);
 router.post("/otp/verify", verifuOTP);
-router.post("/otp/resend", resendOTP)
+router.post("/otp/resend", resendOTP);
+router.post("/user/resetPassword", passwordReset);
+router.post("/user/resetPassword/otpVerify", verifyPasswordResetOtp);
+router.put("/user/resetPassword/passwordUpdate", passwordResetUpdate);
 
 module.exports = router;

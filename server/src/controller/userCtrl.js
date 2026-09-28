@@ -1,10 +1,11 @@
 const bcrypt = require("bcryptjs");
 const cloudinary = require("../config/cloudinary");
 const { OAuth2Client } = require("google-auth-library");
-const userModel = require("../db/model/userModel");
-const sessionModel = require("../db/model/sessionModel");
+const crypto = require("crypto");
+const { userModel, sessionModel, otpModel } = require("../db/model");
 const { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY } = require("../util/authUtils");
-const { BASE_URL, GOOGLE_AUTH_URL, GOOGLE_REDIRECT_URL, GOOGLE_TOKEN_URL } = require('../const')
+const { BASE_URL, GOOGLE_AUTH_URL, GOOGLE_REDIRECT_URL, GOOGLE_TOKEN_URL } = require('../const');
+const sendOTP = require("../services/sendMail");
 
 const SECURE = process.env.NODE_ENVIRONMENT == 'PROD' ? true : false;
 const SAME_SITE = process.env.NODE_ENVIRONMENT == 'PROD' ? "none" : "lax"
@@ -277,7 +278,7 @@ const googleCallbackHandler = async (req, res) => {
     const { sub, email, name, picture, email_verified } = payload;
 
     if (!email_verified) {
-      return res.status(400).send({status: "FAILED", message: "Email not verified by google"});
+      return res.status(400).send({ status: "FAILED", message: "Email not verified by google" });
     }
 
     let user = await userModel.findOne({ userID: email });
@@ -318,6 +319,200 @@ const googleCallbackHandler = async (req, res) => {
   }
 };
 
+const passwordReset = async (req, res) => {
+  try {
+    const { userID } = req.body;
+    const isUserExists = await userModel.findOne({ userID });
+    if (!isUserExists || !(isUserExists.isEmailVerified))
+      return res.status(404).json({
+        status: "FAILED",
+        message: "User doesn't exists",
+        error: {
+          code: 'USER_NOT_EXISTS',
+          details: 'Entered email is either wrong or not exists'
+        }
+      });
+
+    const generatedOTP = crypto.randomInt(100000, 999999);
+    const userForOtp = new otpModel({
+      userID,
+      isEmailVerified: isUserExists.isEmailVerified,
+      otp: generatedOTP
+    });
+    await userForOtp.save();
+    const isOTPSend = sendOTP({ userID, otp: generatedOTP });
+    if (!isOTPSend)
+      return res.status(505).json({
+        status: "FAILED", message: "Failed to send OTP", error: {
+          code: "OTP_SEND_ERROR",
+          details: null
+        }
+      });
+
+    res.status(200).json({
+      status: "SUCCESS",
+      message: "OTP sent successfully"
+    })
+
+  } catch (error) {
+    console.log(`[PASSW0RD_RESET_ERROR] ${error}`)
+    return res.status(505).json({
+      status: "FAILED",
+      message: "Internal server error",
+      error: {
+        code: 'INTERNAL_SERVER_ERR',
+        details: 'Password reseting failed due to server error'
+      }
+    });
+  }
+};
+
+const verifyPasswordResetOtp = async (req, res) => {
+  try {
+    const { userID, otp } = req.body;
+    if (!userID || !otp)
+      return res.status(422).json({
+        status: "FAILED",
+        message: "OTP verification failed",
+        error: {
+          code: 'INVALID_PAYLOADS',
+          details: 'Either userID or otp payload missing'
+        }
+      });
+
+    const userForOtp = await otpModel.findOne({ userID });
+    if (!userForOtp)
+      return res.status(422).json({
+        status: "FAILED",
+        message: "OTP verification failed",
+        error: {
+          code: 'USER_NOT_EXISTS',
+          details: 'User data is missing or removed'
+        }
+      });
+    const { otp: savedOtp, otpExpiresAt, userID: savedUserID } = userForOtp;
+    if (!((Date.now() - new Date(otpExpiresAt)) < 0))
+      return res.status(410).json({
+        status: "FAILED",
+        message: "OTP expired",
+        error: {
+          code: 'OTP_EXPIRED',
+          details: 'OTP expired'
+        }
+      });
+
+    if (savedOtp !== otp)
+      return res.status(400).json({
+        status: "FAILED",
+        message: "OTP verification failed",
+        error: {
+          code: 'Wrong OTP',
+          details: 'Entered OTP is wrong'
+        }
+      });
+
+    const passwordResetToken = crypto.randomBytes(32).toString("hex");
+
+    const tokenExpiresAt = new Date(Date.now() + 1 * 60 * 1000)
+
+    await otpModel.findOneAndUpdate({ userID }, {
+      passwordResetToken,
+      passwordResetTknCreated: Date.now(),
+      passwordResetTknExpiresAt: tokenExpiresAt
+    });
+
+    return res.status(200).json({
+      status: "SUCCESS",
+      message: "OTP verified",
+      data: {
+        userID,
+        passwordResetToken,
+        tokenExpiresAt
+      }
+    });
+
+  } catch (error) {
+    console.log(`PASSWORD_RESET_OTP_ERR ${error}`);
+    return res.status(505).json({
+      status: "FAILED",
+      message: "Internal server error",
+      error: {
+        code: 'INTERNAL_SERVER_ERR',
+        details: 'OTP verification for password reseting failed'
+      }
+    });
+  }
+};
+
+const passwordResetUpdate = async (req, res) => {
+  try {
+    const { userID, token, password } = req.body;
+    if (!userID || !token)
+      return res.status(422).json({
+        status: "FAILED",
+        message: "Failed to update password",
+        error: {
+          code: 'INVALID_PAYLOADS',
+          details: 'Either userID or token payload is missing'
+        }
+      });
+
+    const userToUpdatePassword = await otpModel.findOne({ userID });
+    if (!userToUpdatePassword)
+      return res.status(401).json({
+        status: "FAILED",
+        message: "",
+        error: {
+          code: 'NOT_AUTHORIZED',
+          details: null
+        }
+      });
+     
+    const { passwordResetToken, passwordResetTknExpiresAt } = userToUpdatePassword;
+    if (!passwordResetToken || !(Date.now() - new Date(passwordResetTknExpiresAt) < 0))
+      return res.status(410).json({
+        status: "FAILED",
+        message: "Password reset token expired",
+        error: {
+          code: 'TOKEN_EXPIRED',
+          details: 'Password reset token is expired'
+        }
+      });
+
+    if (token !== passwordResetToken)
+      return res.status(400).json({
+        status: "FAILED",
+        message: "Token verification failed",
+        error: {
+          code: 'INVALIE_TOKEN',
+          details: 'Password reset token is wrong'
+        }
+      });
+
+    await userModel.findOneAndUpdate({ userID }, {
+      password
+    })
+
+    await otpModel.findOneAndDelete({ userID });
+
+    return res.status(200).json({
+      status: "SUCCESS",
+      message: "Password updated"
+    });
+
+  } catch (error) {
+    console.log(`PASSWORD_RESET_UPDATE ${error}`);
+    return res.status(505).json({
+      status: "FAILED",
+      message: "Internal server error",
+      error: {
+        code: 'INTERNAL_SERVER_ERR',
+        details: 'password reseting failed'
+      }
+    });
+  }
+};
+
 module.exports = {
   verify,
   login,
@@ -326,5 +521,8 @@ module.exports = {
   remove,
   logout,
   googleLoginHandler,
-  googleCallbackHandler
+  googleCallbackHandler,
+  passwordReset,
+  verifyPasswordResetOtp,
+  passwordResetUpdate
 };

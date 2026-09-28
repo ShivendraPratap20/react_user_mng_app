@@ -45,6 +45,15 @@ const otpSchema = new mongoose.Schema({
     regenerateOTPAfter: {
         type: Date,
         default: () => new Date(Date.now() + 60 * 1000)
+    },
+    passwordResetToken: {
+        type: String
+    },
+    passwordResetTknCreated: {
+        type: Date
+    },
+    passwordResetTknExpiresAt: {
+        type: Date
     }
 }, {
     timestamps: true

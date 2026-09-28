@@ -30,10 +30,10 @@ const userSchema = new mongoose.Schema({
             },
             message: 'Phone number must be 10 digits long and contain only numbers'
         }
-    }, 
+    },
     profilePic: {
         type: String,
-        default: "", 
+        default: "",
     },
     tokens: [
         {
@@ -41,7 +41,11 @@ const userSchema = new mongoose.Schema({
                 type: String
             }
         }
-    ]
+    ],
+    isEmailVerified: {
+        type: Boolean,
+        default: false
+    }
 });
 
 userSchema.methods.generateToken = async function () {
@@ -61,6 +65,17 @@ userSchema.pre("save", async function (next) {
     }
     next();
 });
+
+userSchema.pre("findOneAndUpdate", async function (next) {
+    const update = this.getUpdate();
+
+    if (update.password) {
+        update.password = await bcrypt.hash(update.password, 10);
+    }
+
+    next();
+});
+
 
 const userModel = mongoose.model("user", userSchema);
 
